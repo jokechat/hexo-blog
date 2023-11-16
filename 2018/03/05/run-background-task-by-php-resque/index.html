@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 7.0.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"jokechat.cn","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="因实际项目需求,需要一些在后台长时间运行一些比较耗时的任务,e.g:邮件,app推送消息,报表生成..,寻了几种方案swoole,php-resque,workman,最终选择了php-resque,比较喜欢Ta的设计简洁清晰,足够轻量,能满足目前的大部分需求  设计思想导读  php-resque 的设计思想来源于 Ruby 的项目 resque,这是各种语言实现版本,更多文档请查阅官方文档">
+<meta property="og:type" content="article">
+<meta property="og:title" content="轻量级消息队列php-resque使用">
+<meta property="og:url" content="https://jokechat.cn/2018/03/05/run-background-task-by-php-resque/index.html">
+<meta property="og:site_name" content="jokechat">
+<meta property="og:description" content="因实际项目需求,需要一些在后台长时间运行一些比较耗时的任务,e.g:邮件,app推送消息,报表生成..,寻了几种方案swoole,php-resque,workman,最终选择了php-resque,比较喜欢Ta的设计简洁清晰,足够轻量,能满足目前的大部分需求  设计思想导读  php-resque 的设计思想来源于 Ruby 的项目 resque,这是各种语言实现版本,更多文档请查阅官方文档">
+<meta property="og:locale">
+<meta property="article:published_time" content="2018-03-05T06:04:40.000Z">
+<meta property="article:modified_time" content="2021-11-13T15:22:26.971Z">
+<meta property="article:author" content="jokechat">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://jokechat.cn/2018/03/05/run-background-task-by-php-resque/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-Hans'
+  };
+</script>
+
+  <title>轻量级消息队列php-resque使用 | jokechat</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+<link rel="alternate" href="/atom.xml" title="jokechat" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">jokechat</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">人丑需要多读书</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>Home</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-Hans">
+    <link itemprop="mainEntityOfPage" href="https://jokechat.cn/2018/03/05/run-background-task-by-php-resque/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="jokechat">
+      <meta itemprop="description" content="技术,资讯">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="jokechat">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          轻量级消息队列php-resque使用
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">Posted on</span>
+
+              <time title="Created: 2018-03-05 14:04:40" itemprop="dateCreated datePublished" datetime="2018-03-05T14:04:40+08:00">2018-03-05</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">Edited on</span>
+                <time title="Modified: 2021-11-13 23:22:26" itemprop="dateModified" datetime="2021-11-13T23:22:26+08:00">2021-11-13</time>
+              </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <blockquote>
+<p>因实际项目需求,需要一些在后台长时间运行一些比较耗时的任务,e.g:邮件,app推送消息,报表生成..,寻了几种方案<a href="https://www.swoole.com/" target="_blank" rel="noopener">swoole</a>,<a href="https://github.com/chrisboulton/php-resque" target="_blank" rel="noopener">php-resque</a>,<a href="http://www.workerman.net/" target="_blank" rel="noopener">workman</a>,最终选择了<code>php-resque</code>,比较喜欢Ta的设计简洁清晰,足够轻量,能满足目前的大部分需求</p>
+</blockquote>
+<h1 id="设计思想"><a href="#设计思想" class="headerlink" title="设计思想"></a>设计思想</h1><h2 id="导读"><a href="#导读" class="headerlink" title="导读"></a>导读</h2><p>  <code>php-resque</code> 的设计思想来源于 <code>Ruby</code> 的项目 <a href="https://github.com/resque/resque" target="_blank" rel="noopener">resque</a>,<a href="https://github.com/resque/resque/wiki/Alternate-Implementations" target="_blank" rel="noopener">这是各种语言实现版本</a>,更多文档请查阅官方文档</p>
+<h2 id="设计思路-amp-角色划分"><a href="#设计思路-amp-角色划分" class="headerlink" title="设计思路&amp;角色划分"></a>设计思路&amp;角色划分</h2><h3 id="Worker-执行者"><a href="#Worker-执行者" class="headerlink" title="Worker 执行者"></a><code>Worker</code> 执行者</h3><p>  负责将<code>redis</code> 队列中的 <code>Job</code>取出,并调用执行指定的 <code>Job(Class)</code>,同时负责维护 <code>Job</code> 状态;<br>  一个<code>Worker</code>可以处理多个队列,可以开启多个<code>worker</code>加快处理速度</p>
+<h3 id="Queue-队列"><a href="#Queue-队列" class="headerlink" title="Queue 队列"></a><code>Queue</code> 队列</h3><p>  队列通过 <code>redis</code> 队列实现,</p>
+<h3 id="Job-任务"><a href="#Job-任务" class="headerlink" title="Job 任务"></a><code>Job</code> 任务</h3><p>  一个<code>Job</code>就是一个需要在后台需要执行的任务,在<code>php-resque</code>的实现中,一个<code>Class</code>就是一个<code>Job</code></p>
+<h2 id="使用基本流程"><a href="#使用基本流程" class="headerlink" title="使用基本流程"></a><code>使用基本流程</code></h2><h3 id="0x00-将一个后台任务编写为一个独立的Class，这个Class就是一个Job。"><a href="#0x00-将一个后台任务编写为一个独立的Class，这个Class就是一个Job。" class="headerlink" title="0x00  将一个后台任务编写为一个独立的Class，这个Class就是一个Job。"></a><code>0x00</code>  将一个后台任务编写为一个独立的<code>Class</code>，这个Class就是一个<code>Job</code>。</h3><h3 id="0x01-在需要使用后台程序的地方，系统将Job-Class的名称以及所需参数放入队列。"><a href="#0x01-在需要使用后台程序的地方，系统将Job-Class的名称以及所需参数放入队列。" class="headerlink" title="0x01  在需要使用后台程序的地方，系统将Job Class的名称以及所需参数放入队列。"></a><code>0x01</code>  在需要使用后台程序的地方，系统将<code>Job Class</code>的名称以及所需参数放入队列。</h3><h3 id="0x02-以命令行方式开启一个Worker，并通过参数指定Worker所需要处理的队列。"><a href="#0x02-以命令行方式开启一个Worker，并通过参数指定Worker所需要处理的队列。" class="headerlink" title="0x02  以命令行方式开启一个Worker，并通过参数指定Worker所需要处理的队列。"></a><code>0x02</code>  以命令行方式开启一个<code>Worker</code>，并通过参数指定Worker所需要处理的队列。</h3><h3 id="0x03-Worker作为守护进程运行，并且定时检查队列。"><a href="#0x03-Worker作为守护进程运行，并且定时检查队列。" class="headerlink" title="0x03  Worker作为守护进程运行，并且定时检查队列。"></a><code>0x03</code>  Worker作为守护进程运行，并且定时检查队列。</h3><h3 id="0x04-当队列中有Job时，Worker取出Job并运行，即实例化Job-Class并执行Class中的方法。"><a href="#0x04-当队列中有Job时，Worker取出Job并运行，即实例化Job-Class并执行Class中的方法。" class="headerlink" title="0x04  当队列中有Job时，Worker取出Job并运行，即实例化Job Class并执行Class中的方法。"></a><code>0x04</code>  当队列中有<code>Job</code>时，<code>Worker</code>取出<code>Job</code>并运行，即实例化<code>Job Class</code>并执行<code>Class</code>中的方法。</h3><h1 id="安装"><a href="#安装" class="headerlink" title="安装"></a>安装</h1><h2 id="安装依赖"><a href="#安装依赖" class="headerlink" title="安装依赖"></a>安装依赖</h2><h3 id="redis"><a href="#redis" class="headerlink" title="redis"></a>redis</h3><h3 id="php"><a href="#php" class="headerlink" title="php"></a>php</h3><h1 id="使用-TODO"><a href="#使用-TODO" class="headerlink" title="使用 TODO"></a>使用 <code>TODO</code></h1><h2 id="Job相关"><a href="#Job相关" class="headerlink" title="Job相关"></a>Job相关</h2><h3 id="编写Job"><a href="#编写Job" class="headerlink" title="编写Job"></a>编写Job</h3><h3 id="将Job插入队列"><a href="#将Job插入队列" class="headerlink" title="将Job插入队列"></a>将Job插入队列</h3><h3 id="Job状态查看"><a href="#Job状态查看" class="headerlink" title="Job状态查看"></a>Job状态查看</h3><h2 id="Worker相关"><a href="#Worker相关" class="headerlink" title="Worker相关"></a>Worker相关</h2><h3 id="启动-重启-停止"><a href="#启动-重启-停止" class="headerlink" title="启动,重启,停止"></a>启动,重启,停止</h3><h3 id="日志收集"><a href="#日志收集" class="headerlink" title="日志收集"></a>日志收集</h3>
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2018/02/20/some-cli-tools/" rel="prev" title="自用的一些命令行工具">
+      <i class="fa fa-chevron-left"></i> 自用的一些命令行工具
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2018/03/05/dynamic-nginx-block-ip-with-lua-and-redis/" rel="next" title="dynamic-nginx-block-ip-with-lua-and-redis">
+      dynamic-nginx-block-ip-with-lua-and-redis <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%AE%BE%E8%AE%A1%E6%80%9D%E6%83%B3"><span class="nav-number">1.</span> <span class="nav-text">设计思想</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AF%BC%E8%AF%BB"><span class="nav-number">1.1.</span> <span class="nav-text">导读</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%AE%BE%E8%AE%A1%E6%80%9D%E8%B7%AF-amp-%E8%A7%92%E8%89%B2%E5%88%92%E5%88%86"><span class="nav-number">1.2.</span> <span class="nav-text">设计思路&amp;角色划分</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Worker-%E6%89%A7%E8%A1%8C%E8%80%85"><span class="nav-number">1.2.1.</span> <span class="nav-text">Worker 执行者</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Queue-%E9%98%9F%E5%88%97"><span class="nav-number">1.2.2.</span> <span class="nav-text">Queue 队列</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Job-%E4%BB%BB%E5%8A%A1"><span class="nav-number">1.2.3.</span> <span class="nav-text">Job 任务</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E5%9F%BA%E6%9C%AC%E6%B5%81%E7%A8%8B"><span class="nav-number">1.3.</span> <span class="nav-text">使用基本流程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#0x00-%E5%B0%86%E4%B8%80%E4%B8%AA%E5%90%8E%E5%8F%B0%E4%BB%BB%E5%8A%A1%E7%BC%96%E5%86%99%E4%B8%BA%E4%B8%80%E4%B8%AA%E7%8B%AC%E7%AB%8B%E7%9A%84Class%EF%BC%8C%E8%BF%99%E4%B8%AAClass%E5%B0%B1%E6%98%AF%E4%B8%80%E4%B8%AAJob%E3%80%82"><span class="nav-number">1.3.1.</span> <span class="nav-text">0x00  将一个后台任务编写为一个独立的Class，这个Class就是一个Job。</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#0x01-%E5%9C%A8%E9%9C%80%E8%A6%81%E4%BD%BF%E7%94%A8%E5%90%8E%E5%8F%B0%E7%A8%8B%E5%BA%8F%E7%9A%84%E5%9C%B0%E6%96%B9%EF%BC%8C%E7%B3%BB%E7%BB%9F%E5%B0%86Job-Class%E7%9A%84%E5%90%8D%E7%A7%B0%E4%BB%A5%E5%8F%8A%E6%89%80%E9%9C%80%E5%8F%82%E6%95%B0%E6%94%BE%E5%85%A5%E9%98%9F%E5%88%97%E3%80%82"><span class="nav-number">1.3.2.</span> <span class="nav-text">0x01  在需要使用后台程序的地方，系统将Job Class的名称以及所需参数放入队列。</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#0x02-%E4%BB%A5%E5%91%BD%E4%BB%A4%E8%A1%8C%E6%96%B9%E5%BC%8F%E5%BC%80%E5%90%AF%E4%B8%80%E4%B8%AAWorker%EF%BC%8C%E5%B9%B6%E9%80%9A%E8%BF%87%E5%8F%82%E6%95%B0%E6%8C%87%E5%AE%9AWorker%E6%89%80%E9%9C%80%E8%A6%81%E5%A4%84%E7%90%86%E7%9A%84%E9%98%9F%E5%88%97%E3%80%82"><span class="nav-number">1.3.3.</span> <span class="nav-text">0x02  以命令行方式开启一个Worker，并通过参数指定Worker所需要处理的队列。</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#0x03-Worker%E4%BD%9C%E4%B8%BA%E5%AE%88%E6%8A%A4%E8%BF%9B%E7%A8%8B%E8%BF%90%E8%A1%8C%EF%BC%8C%E5%B9%B6%E4%B8%94%E5%AE%9A%E6%97%B6%E6%A3%80%E6%9F%A5%E9%98%9F%E5%88%97%E3%80%82"><span class="nav-number">1.3.4.</span> <span class="nav-text">0x03  Worker作为守护进程运行，并且定时检查队列。</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#0x04-%E5%BD%93%E9%98%9F%E5%88%97%E4%B8%AD%E6%9C%89Job%E6%97%B6%EF%BC%8CWorker%E5%8F%96%E5%87%BAJob%E5%B9%B6%E8%BF%90%E8%A1%8C%EF%BC%8C%E5%8D%B3%E5%AE%9E%E4%BE%8B%E5%8C%96Job-Class%E5%B9%B6%E6%89%A7%E8%A1%8CClass%E4%B8%AD%E7%9A%84%E6%96%B9%E6%B3%95%E3%80%82"><span class="nav-number">1.3.5.</span> <span class="nav-text">0x04  当队列中有Job时，Worker取出Job并运行，即实例化Job Class并执行Class中的方法。</span></a></li></ol></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%AE%89%E8%A3%85"><span class="nav-number">2.</span> <span class="nav-text">安装</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%89%E8%A3%85%E4%BE%9D%E8%B5%96"><span class="nav-number">2.1.</span> <span class="nav-text">安装依赖</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#redis"><span class="nav-number">2.1.1.</span> <span class="nav-text">redis</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#php"><span class="nav-number">2.1.2.</span> <span class="nav-text">php</span></a></li></ol></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8-TODO"><span class="nav-number">3.</span> <span class="nav-text">使用 TODO</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#Job%E7%9B%B8%E5%85%B3"><span class="nav-number">3.1.</span> <span class="nav-text">Job相关</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%BC%96%E5%86%99Job"><span class="nav-number">3.1.1.</span> <span class="nav-text">编写Job</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B0%86Job%E6%8F%92%E5%85%A5%E9%98%9F%E5%88%97"><span class="nav-number">3.1.2.</span> <span class="nav-text">将Job插入队列</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Job%E7%8A%B6%E6%80%81%E6%9F%A5%E7%9C%8B"><span class="nav-number">3.1.3.</span> <span class="nav-text">Job状态查看</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Worker%E7%9B%B8%E5%85%B3"><span class="nav-number">3.2.</span> <span class="nav-text">Worker相关</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%90%AF%E5%8A%A8-%E9%87%8D%E5%90%AF-%E5%81%9C%E6%AD%A2"><span class="nav-number">3.2.1.</span> <span class="nav-text">启动,重启,停止</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%97%A5%E5%BF%97%E6%94%B6%E9%9B%86"><span class="nav-number">3.2.2.</span> <span class="nav-text">日志收集</span></a></li></ol></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">jokechat</p>
+  <div class="site-description" itemprop="description">技术,资讯</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">10</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+        <span class="site-state-item-count">1</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+        <span class="site-state-item-count">7</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2023</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">jokechat</span>
+</div>
+  <div class="powered-by">Powered by <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a>
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
